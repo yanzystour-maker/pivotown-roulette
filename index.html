@@ -103,7 +103,10 @@
 </div>
 
 <script>
-const API_URL = 'https://d5dr6ldr9sl22jhrpg26.z2ka767n.apigw.yandexcloud.net';
+// ================= НОВЫЙ API-ШЛЮЗ =================
+const API_URL = 'https://d5d79np5hkca8nqnm8d1.wnq2w1o5.apigw.yandexcloud.net';
+// =================================================
+
 const tg = window.Telegram.WebApp;
 tg.expand();
 
@@ -139,7 +142,7 @@ function drawWheel() {
         const y2 = CENTER + RADIUS * Math.sin(endRad);
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', `M ${CENTER} ${CENTER} L ${x1} ${y1} A ${RADIUS} ${RADIUS} 0 0 1 ${x2} ${y2} Z`);
-        path.setAttribute('fill', colors[i]);
+        path.setAttribute('fill', colors[i % colors.length]);
         path.setAttribute('class', 'seg-path');
         svg.appendChild(path);
 
@@ -193,7 +196,10 @@ async function init() {
             const prize = PRIZES.find(p => p.name === data.lastPrize);
             if (prize) showResult(prize);
         }
-    } catch(e) { alert('Ошибка сети'); }
+    } catch(e) {
+        console.error(e);
+        alert('Ошибка сети: ' + e.message);
+    }
 }
 
 function calcTargetRotation(idx) {
@@ -279,7 +285,8 @@ async function spin() {
             spinning = false;
         });
     } catch(e) {
-        alert('Ошибка сети');
+        console.error(e);
+        alert('Ошибка сети: ' + e.message);
         spinning = false;
         btn.disabled = false;
     }
