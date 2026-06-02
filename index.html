@@ -5,115 +5,165 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Пивотаун — Рулетка</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Inter', sans-serif; background: #0a0a10; color: #e8e8e8; padding: 20px; }
-        .error-box { background: #ff000020; border: 1px solid #ff4444; border-radius: 16px; padding: 16px; margin-bottom: 20px; display: none; }
-        .error-box pre { color: #ff8888; font-size: 12px; white-space: pre-wrap; }
-        .card { background: #13131a; border-radius: 24px; padding: 20px; }
-        .spin-btn { width: 100%; padding: 18px; background: #d4a843; border: none; border-radius: 16px; font-weight: bold; cursor: pointer; }
-        .debug { font-size: 10px; color: #888; margin-top: 20px; border-top: 1px solid #333; padding-top: 10px; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0a0a10; color: #e8e8e8; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .card { background: #13131a; border-radius: 28px; padding: 24px; max-width: 400px; width: 100%; text-align: center; border: 1px solid rgba(212,168,67,0.2); }
+        .logo { font-size: 32px; font-weight: bold; color: #d4a843; margin-bottom: 8px; }
+        .spin-btn { background: linear-gradient(135deg, #d4a843, #a08030); border: none; border-radius: 60px; padding: 16px 24px; font-size: 20px; font-weight: bold; color: #0a0a10; width: 100%; cursor: pointer; margin-top: 20px; transition: 0.2s; }
+        .spin-btn:disabled { opacity: 0.5; }
+        .timer, .result { margin-top: 20px; background: rgba(212,168,67,0.1); border-radius: 20px; padding: 16px; display: none; }
+        .timer.active, .result.active { display: block; }
+        .prize-emoji { font-size: 48px; }
+        .debug { font-size: 10px; color: #666; margin-top: 20px; text-align: left; word-break: break-word; }
     </style>
 </head>
 <body>
-<div id="errorBox" class="error-box"><pre id="errorText"></pre></div>
 <div class="card">
-    <h1>🎰 Рулетка Пивотаун</h1>
+    <div class="logo">🍺 ПИВОТАУН</div>
+    <div style="font-size: 14px; color: #aaa;">Рулетка Удачи</div>
     <button class="spin-btn" id="spinBtn" disabled>Загрузка...</button>
-    <div id="result"></div>
+    <div class="timer" id="timer"><span id="timerText"></span></div>
+    <div class="result" id="result"></div>
     <div class="debug" id="debug"></div>
 </div>
 
 <script>
-const API_URL = 'https://d5d79np5hkca8nqnm8d1.wnq2w1o5.apigw.yandexcloud.net';
-const tg = window.Telegram.WebApp;
-tg.expand();
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.enableClosingConfirmation();
 
-function showError(msg) {
-    const box = document.getElementById('errorBox');
-    const text = document.getElementById('errorText');
-    text.textContent = msg;
-    box.style.display = 'block';
-}
+    let sessionId = null;
+    let lastPrize = null;
 
-function debugLog(msg) {
-    const div = document.getElementById('debug');
-    div.innerHTML += new Date().toLocaleTimeString() + ': ' + msg + '<br>';
-}
-
-debugLog('Скрипт запущен');
-debugLog('API_URL: ' + API_URL);
-
-const PRIZES = [
-    { name: 'Ассорти шашлыков', emoji: '🥩' },
-    { name: 'Бокал пива', emoji: '🍺' },
-    { name: 'Повезёт в следующий раз!', emoji: '💨' },
-    { name: 'Любое блюдо', emoji: '🍽' },
-    { name: 'Депозит 1000 ₽', emoji: '💰' }
-];
-
-let sessionId = null;
-
-async function init() {
-    debugLog('init() started');
-    const initData = tg.initData || '';
-    if (!initData) {
-        showError('Ошибка: приложение запущено не из Telegram. initData пуст.');
-        debugLog('initData пуст');
-        return;
+    function log(msg) {
+        const debugDiv = document.getElementById('debug');
+        debugDiv.innerHTML += new Date().toLocaleTimeString() + ': ' + msg + '<br>';
+        console.log(msg);
     }
-    debugLog('initData есть, длина: ' + initData.length);
-    try {
-        debugLog('Отправка запроса на /auth');
-        const res = await fetch(API_URL + '/auth', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ initData })
+
+    function showError(msg) {
+        document.getElementById('result').innerHTML = `<div style="color: #ff8888;">❌ ${msg}</div>`;
+        document.getElementById('result').classList.add('active');
+    }
+
+    // Отправка данных через бота
+    function sendToBot(action, payload) {
+        return new Promise((resolve, reject) => {
+            const id = Date.now() + Math.random();
+            const callback = (event) => {
+                if (event.detail && event.detail.id === id) {
+                    window.removeEventListener('webAppDataReceived', callback);
+                    resolve(event.detail.data);
+                }
+            };
+            window.addEventListener('webAppDataReceived', callback);
+            tg.sendData(JSON.stringify({ id, action, payload }));
+            // Таймаут на случай, если ответ не придёт
+            setTimeout(() => {
+                window.removeEventListener('webAppDataReceived', callback);
+                reject(new Error('No response from bot'));
+            }, 10000);
         });
-        debugLog('Ответ получен, статус: ' + res.status);
-        const data = await res.json();
-        debugLog('Данные: ' + JSON.stringify(data));
-        if (!data.ok) {
-            showError('Ошибка авторизации: ' + (data.error || 'неизвестно'));
+    }
+
+    async function init() {
+        log('init start');
+        const initData = tg.initData;
+        if (!initData) {
+            showError('Запустите из Telegram');
             return;
         }
-        sessionId = data.sessionId;
-        document.getElementById('spinBtn').disabled = false;
-        document.getElementById('spinBtn').textContent = '🎰 Крутить рулетку';
-        document.getElementById('spinBtn').onclick = spin;
-    } catch(e) {
-        debugLog('Исключение: ' + e.message);
-        showError('Ошибка сети: ' + e.message);
-    }
-}
-
-async function spin() {
-    if (!sessionId) return;
-    try {
-        const res = await fetch(API_URL + '/spin', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ sessionId })
-        });
-        const data = await res.json();
-        debugLog('spin ответ: ' + JSON.stringify(data));
-        if (!data.ok && data.error === 'Cooldown') {
-            alert('Уже крутили сегодня!');
-            return;
+        try {
+            const response = await sendToBot('auth', { initData });
+            log('auth response: ' + JSON.stringify(response));
+            if (!response.ok) throw new Error(response.error || 'Auth failed');
+            sessionId = response.sessionId;
+            lastPrize = response.lastPrize;
+            document.getElementById('spinBtn').disabled = false;
+            document.getElementById('spinBtn').innerText = '🎰 Крутить';
+            if (!response.canSpin && response.expires) {
+                startTimer(response.expires);
+                if (lastPrize) showResult(lastPrize);
+            }
+        } catch (e) {
+            log('init error: ' + e.message);
+            showError('Ошибка: ' + e.message);
         }
-        if (data.ok) {
-            const prize = PRIZES[data.prizeIndex];
-            document.getElementById('result').innerHTML = `<h2>${prize.emoji} ${prize.name}</h2>`;
-        } else {
-            alert('Ошибка: ' + (data.error || 'неизвестно'));
-        }
-    } catch(e) {
-        showError('Ошибка при spin: ' + e.message);
     }
-}
 
-init();
+    async function spin() {
+        if (!sessionId) return;
+        const btn = document.getElementById('spinBtn');
+        btn.disabled = true;
+        btn.innerText = '⏳ Крутим...';
+        try {
+            const response = await sendToBot('spin', { sessionId });
+            log('spin response: ' + JSON.stringify(response));
+            if (!response.ok) {
+                if (response.error === 'Cooldown') {
+                    startTimer(response.expires);
+                    showError('Вы уже крутили сегодня!');
+                } else {
+                    showError(response.error || 'Ошибка');
+                }
+                btn.disabled = false;
+                btn.innerText = '🎰 Крутить';
+                return;
+            }
+            // Успешный спин
+            const prize = response.prizeName;
+            showResult(prize);
+            // Запускаем таймер на 24 часа
+            startTimer(Date.now() + 86400000);
+            btn.disabled = false;
+            btn.innerText = '🎰 Крутить';
+        } catch (e) {
+            log('spin error: ' + e.message);
+            showError('Сеть: ' + e.message);
+            btn.disabled = false;
+            btn.innerText = '🎰 Крутить';
+        }
+    }
+
+    function startTimer(expires) {
+        const timerDiv = document.getElementById('timer');
+        const timerText = document.getElementById('timerText');
+        timerDiv.classList.add('active');
+        function tick() {
+            const left = expires - Date.now();
+            if (left <= 0) {
+                timerDiv.classList.remove('active');
+                document.getElementById('spinBtn').disabled = false;
+                return;
+            }
+            const hours = Math.floor(left / 3600000);
+            const minutes = Math.floor((left % 3600000) / 60000);
+            const seconds = Math.floor((left % 60000) / 1000);
+            timerText.innerText = `⏱️ ${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`;
+            requestAnimationFrame(tick);
+        }
+        tick();
+        document.getElementById('spinBtn').disabled = true;
+    }
+
+    function showResult(prizeName) {
+        const resultDiv = document.getElementById('result');
+        let emoji = '🎁';
+        if (prizeName.includes('пива')) emoji = '🍺';
+        else if (prizeName.includes('блюдо')) emoji = '🍽️';
+        else if (prizeName.includes('Депозит')) emoji = '💰';
+        else if (prizeName.includes('Ассорти')) emoji = '🥩';
+        else if (prizeName.includes('Повезёт')) emoji = '💨';
+        resultDiv.innerHTML = `<div class="prize-emoji">${emoji}</div><div style="font-size: 20px; font-weight: bold;">${prizeName}</div><div style="font-size: 12px; margin-top: 8px;">При заказе от 1000₽</div>`;
+        resultDiv.classList.add('active');
+        setTimeout(() => {
+            // Можно скрыть через пару секунд, но оставим пока
+        }, 5000);
+    }
+
+    document.getElementById('spinBtn').onclick = spin;
+    init();
 </script>
 </body>
 </html>
